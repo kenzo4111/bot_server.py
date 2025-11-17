@@ -7,167 +7,143 @@ import uuid
 import shutil
 from telebot import types
 from moviepy.editor import VideoFileClip
-import instaloader.exceptions
 
-# Flask server
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Instagram Video + Audio Bot ishlayapti ✅", 200
+    return "Bot ishlayapti | Uptime: OK", 200
 
-# Telegram bot
+# ==================== CONFIG ====================
 TOKEN = "7359713313:AAGbK1Bj_k1dRt259fRkUM0fn4g_Gau79_8"
 bot = telebot.TeleBot(TOKEN)
 
-# Instagram login ma'lumotlari (serverda env var ishlat!)
-INSTA_USERNAME = os.getenv('INSTA_USERNAME', 'sizning_username')  # O'zgartiring
-INSTA_PASSWORD = os.getenv('INSTA_PASSWORD', 'sizning_parol')    # O'zgartiring
+# Instagram login (agar bloklansa – bu yerga to‘g‘ri username + parol qo‘ying)
+INSTA_USER = os.getenv("INSTA_USER")      # Render/Railway da Environment Variables ga qo‘shing
+INSTA_PASS = os.getenv("INSTA_PASS")      # majburiy emas – bo‘lmasa anonim ishlaydi
 
-# Instaloader
-loader = instaloader.Instaloader(
-    download_comments=False,
-    download_geotags=False,
+L = instaloader.Instaloader(
     download_pictures=False,
     download_video_thumbnails=False,
+    download_comments=False,
     save_metadata=False,
     compress_json=False,
-    post_metadata_txt_pattern="",
-    filename_pattern="{shortcode}",
-    request_timeout=30,
-    sleep=True,
-    max_connection_attempts=3
+    quiet=True,
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 )
 
-# Login
-try:
-    loader.login(INSTA_USERNAME, INSTA_PASSWORD)
-    print("Instagram login OK")
-except instaloader.exceptions.LoginRequiredException:
-    print("Login talab qilinmoqda – username/parol tekshiring")
-except Exception as e:
-    print(f"Login xatosi: {e}")
+# Login faqat agar ikkala o‘zgaruvchi ham to‘ldirilgan bo‘lsa
+if INSTA_USER and INSTA_PASS:
+    try:
+        L.login(INSTA_USER, INSTA_PASS)
+        print("Instagram login muvaffaqiyatli")
+    except Exception as e:
+        print(f"Instagram login xatosi: {e}")
+else:
+    print("Instagram anonim rejimda ishlayapti (bloklanish ehtimoli yuqori)")
 
-# /start
+# ==================== HANDLERS ====================
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(
-        message.chat.id,
-        "Assalomu alaykum! 😊\n\n"
-        "Instagram Reels, Post yoki IGTV linkini yuboring – men sizga video + audioni chiqarib beraman 🎵\n\n"
-        "Masalan:\nhttps://www.instagram.com/reel/C1234567890/"
+    bot.send_message(message.chat.id,
+        "Assalomu alaykum! Instagram Reels/Post link yuboring – video + audio chiqaraman\n\n"
+        "Masalan: https://www.instagram.com/reel/Cy123abcD/"
     )
 
-# Link handler
-@bot.message_handler(func=lambda message: True)
-def handle_instagram_link(message):
+@bot.message_handler(func=lambda m: True)
+def handle_link(message):
     url = message.text.strip()
-
     if "instagram.com" not in url:
-        bot.reply_to(message, "❌ Iltimos, faqat Instagram link yuboring!")
-        return
+        return bot.reply_to(message, "Faqat Instagram link yuboring")
 
-    # Shortcode olish
+    # Shortcode chiqarib olish
     try:
-        if "/reel/" in url:
-            shortcode = url.split("/reel/")[1].split("/")[0].split("?")[0]
-        elif "/p/" in url:
-            shortcode = url.split("/p/")[1].split("/")[0].split("?")[0]
-        elif "/tv/" in url:
-            shortcode = url.split("/tv/")[1].split("/")[0].split("?")[0]
-        else:
-            bot.reply_to(message, "❌ To'g'ri Instagram link yuboring!")
-            return
+        shortcode = url.split("instagram.com/")[1].split("/")[1].split("?")[0]
+        if shortcode.endswith("/"): shortcode = shortcode[:-1]
     except:
-        bot.reply_to(message, "❌ Link formati noto'g'ri!")
-        return
+        return bot.reply_to(message, "Link noto‘g‘ri")
 
-    status = bot.send_message(message.chat.id, "⏳ Video yuklanmoqda...")
+    status = bot.send_message(message.chat.id, "Video yuklanmoqda...")
 
-    folder_name = f"temp_{uuid.uuid4().hex[:10]}"
-    os.makedirs(folder_name, exist_ok=True)
-
-    video_path = None
+    temp_dir = f"temp_{uuid.uuid4().hex[:12]}"
+    os.makedirs(temp_dir, exist_ok=True)
 
     try:
-        post = instaloader.Post.from_shortcode(loader.context, shortcode)
-        loader.download_post(post, target=folder_name)
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        L.download_post(post, target=temp_dir)
 
-        for file in os.listdir(folder_name):
-            if file.endswith(".mp4"):
-                video_path = os.path.join(folder_name, file)
+        video_path = None
+        for f in os.listdir(temp_dir):
+            if f.endswith(".mp4"):
+                video_path = os.path.join(temp_dir, f)
                 break
 
-        if not video_path or not os.path.exists(video_path):
+        if not video_path:
             raise Exception("Video topilmadi")
 
-        with open(video_path, "rb") as video_file:
+        with open(video_path, "rb") as vid:
             markup = types.InlineKeyboardMarkup()
-            btn = types.InlineKeyboardButton("🔊 Audioni olish", callback_data=f"audio_{folder_name}")
-            markup.add(btn)
-            bot.send_video(message.chat.id, video_file, caption="✅ Video tayyor!", reply_markup=markup)
+            markup.add(types.InlineKeyboardButton("Audioni olish", callback_data=f"audio|{temp_dir}"))
+            bot.send_video(message.chat.id, vid, caption="Video tayyor!", reply_markup=markup)
 
         bot.delete_message(message.chat.id, status.message_id)
 
+    except instaloader.exceptions.LoginRequiredException:
+        bot.delete_message(message.chat.id, status.message_id)
+        bot.reply_to(message, "Instagram login talab qilmoqda. 5-10 daqiqa kuting yoki boshqa link yuboring.")
     except instaloader.exceptions.ConnectionException as e:
-        if "Please wait a few minutes" in str(e):
+        if "401" in str(e) or "wait a few minutes" in str(e):
             bot.delete_message(message.chat.id, status.message_id)
-            bot.reply_to(message, "🚫 Instagram vaqtincha bloklagan (rate limit). 10-15 daqiqa kuting yoki boshqa link yuboring. Login qilish yordam berishi mumkin!")
-            shutil.rmtree(folder_name, ignore_errors=True)
-            return
-        raise e
+            bot.reply_to(message, "Instagram vaqtincha blokladi. 10-15 daqiqa kuting.")
+        else:
+            bot.reply_to(message, f"Xatolik: {str(e)}")
     except Exception as e:
-        bot.delete_message(message.chat.id, status.message_id)
-        bot.reply_to(message, f"Xatolik yuz berdi 😔\n\n{str(e)}")
+        bot.reply_to(message, f"Xatolik: {str(e)}")
     finally:
-        if os.path.exists(folder_name) and os.path.isdir(folder_name):
-            shutil.rmtree(folder_name, ignore_errors=True)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Audio
-@bot.callback_query_handler(func=lambda call: call.data.startswith("audio_"))
-def send_audio(call):
-    folder_name = call.data.split("_", 1)[1]
-    
-    if not os.path.exists(folder_name):
-        bot.answer_callback_query(call.id, text="❌ Video o'chirilgan")
-        return
+@bot.callback_query_handler(func=lambda call: call.data.startswith("audio|"))
+def get_audio(call):
+    temp_dir = call.data.split("|", 1)[1]
+    if not os.path.exists(temp_dir):
+        return bot.answer_callback_query(call.id, "Fayl o‘chirildi", show_alert=True)
 
-    bot.answer_callback_query(call.id, text="🔄 Audio tayyorlanyapti...")
-    bot.send_message(call.message.chat.id, "⏳ Audio chiqarilmoqda...")
+    bot.answer_callback_query(call.id)
+    bot.send_message(call.message.chat.id, "Audio tayyorlanyapti...")
 
     video_path = None
-    for file in os.listdir(folder_name):
-        if file.endswith(".mp4"):
-            video_path = os.path.join(folder_name, file)
+    for f in os.listdir(temp_dir):
+        if f.endswith(".mp4"):
+            video_path = os.path.join(temp_dir, f)
             break
 
     if not video_path:
-        bot.send_message(call.message.chat.id, "❌ Video topilmadi")
-        return
+        return bot.send_message(call.message.chat.id, "Video topilmadi")
 
     try:
-        video = VideoFileClip(video_path)
+        clip = VideoFileClip(video_path)
         audio_path = f"audio_{uuid.uuid4().hex[:8]}.mp3"
-        video.audio.write_audiofile(audio_path, verbose=False, logger=None)
-        video.close()
+        clip.audio.write_audiofile(audio_path, verbose=False, logger=None)
+        clip.close()
 
-        with open(audio_path, "rb") as audio_file:
-            bot.send_audio(call.message.chat.id, audio_file, title="Instagram dan audio 🎵")
+        with open(audio_path, "rb") as audio:
+            bot.send_audio(call.message.chat.id, audio, title="Instagram Audio")
 
         os.remove(audio_path)
-
     except Exception as e:
-        bot.send_message(call.message.chat.id, f"Audio chiqarishda xato: {e}")
+        bot.send_message(call.message.chat.id, f"Audio xatosi: {e}")
     finally:
-        if os.path.exists(folder_name):
-            shutil.rmtree(folder_name, ignore_errors=True)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-# Bot run
+# ==================== RUN ====================
 def run_bot():
-    print("Bot ishga tushdi...")
+    print("Telegram bot ishga tushdi...")
     bot.infinity_polling(none_stop=True, interval=0)
 
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()
+    # Render, Railway, Fly.io uchun PORT
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
