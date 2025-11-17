@@ -19,8 +19,8 @@ TOKEN = "7359713313:AAGbK1Bj_k1dRt259fRkUM0fn4g_Gau79_8"
 bot = telebot.TeleBot(TOKEN)
 
 # Instagram login (agar bloklansa – bu yerga to‘g‘ri username + parol qo‘ying)
-INSTA_USER = os.getenv("INSTA_USER")      # Render/Railway da Environment Variables ga qo‘shing
-INSTA_PASS = os.getenv("INSTA_PASS")      # majburiy emas – bo‘lmasa anonim ishlaydi
+INSTA_USER = os.getenv("djdnsnnmamsd")      # Render/Railway da Environment Variables ga qo‘shing
+INSTA_PASS = os.getenv("Abdulatif7")      # majburiy emas – bo‘lmasa anonim ishlaydi
 
 L = instaloader.Instaloader(
     download_pictures=False,
@@ -147,3 +147,4 @@ if __name__ == "__main__":
     # Render, Railway, Fly.io uchun PORT
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
